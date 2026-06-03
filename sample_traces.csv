@@ -1,0 +1,16 @@
+route,duration_ms,status
+/api/search,182,200
+/api/search,211,200
+/api/search,448,200
+/api/search,392,200
+/api/search,505,500
+/api/checkout,612,200
+/api/checkout,744,503
+/api/checkout,701,200
+/api/checkout,689,200
+/api/checkout,845,502
+/api/profile,118,200
+/api/profile,124,200
+/api/profile,137,200
+/api/profile,129,200
+/api/profile,132,200

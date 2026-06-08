@@ -22,6 +22,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--latency-budget", type=float, default=350.0, help="P95 latency budget in milliseconds")
     parser.add_argument("--error-budget", type=float, default=2.0, help="Error-rate budget in percent")
     parser.add_argument("--min-samples", type=int, default=5, help="Minimum route sample count before auditing it")
+    parser.add_argument("--route-prefix", type=str, help="Only audit routes starting with this prefix")
+    parser.add_argument("--breaches-only", action="store_true", help="Only print/export routes breaching any budget")
     parser.add_argument("--output", type=Path, help="Optional CSV path for the route summary")
     return parser.parse_args()
 
@@ -72,6 +74,8 @@ def summarize_routes(
     latency_budget: float,
     error_budget: float,
     min_samples: int,
+    route_prefix: str | None = None,
+    breaches_only: bool = False,
 ) -> list[dict[str, float | int | str]]:
     grouped: dict[str, list[TraceRow]] = defaultdict(list)
     for row in rows:
@@ -79,6 +83,8 @@ def summarize_routes(
 
     summary: list[dict[str, float | int | str]] = []
     for route, route_rows in sorted(grouped.items()):
+        if route_prefix and not route.startswith(route_prefix):
+            continue
         if len(route_rows) < min_samples:
             continue
 
@@ -99,20 +105,21 @@ def summarize_routes(
             verdict_parts.append("errors")
         verdict = "healthy" if not verdict_parts else "breach: " + " + ".join(verdict_parts)
 
-        summary.append(
-            {
-                "route": route,
-                "samples": len(route_rows),
-                "avg_ms": round(avg, 1),
-                "p50_ms": round(p50, 1),
-                "p95_ms": round(p95, 1),
-                "p99_ms": round(p99, 1),
-                "error_rate_pct": round(error_rate, 2),
-                "latency_breach_ms": round(max(latency_breach, 0.0), 1),
-                "error_breach_pct": round(max(error_breach, 0.0), 2),
-                "verdict": verdict,
-            }
-        )
+        row = {
+            "route": route,
+            "samples": len(route_rows),
+            "avg_ms": round(avg, 1),
+            "p50_ms": round(p50, 1),
+            "p95_ms": round(p95, 1),
+            "p99_ms": round(p99, 1),
+            "error_rate_pct": round(error_rate, 2),
+            "latency_breach_ms": round(max(latency_breach, 0.0), 1),
+            "error_breach_pct": round(max(error_breach, 0.0), 2),
+            "verdict": verdict,
+        }
+        if breaches_only and verdict == "healthy":
+            continue
+        summary.append(row)
 
     summary.sort(
         key=lambda row: (
@@ -131,11 +138,19 @@ def print_summary(summary: list[dict[str, float | int | str]], args: argparse.Na
     print(f"P95 latency budget: {args.latency_budget:.1f} ms")
     print(f"Error budget:       {args.error_budget:.2f}%")
     print(f"Min samples:        {args.min_samples}")
+    if args.route_prefix:
+        print(f"Route prefix:       {args.route_prefix}")
+    print(f"Breaches only:      {'yes' if args.breaches_only else 'no'}")
     print()
 
     if not summary:
         print("No routes met the sample threshold.")
         return
+
+    breached = [row for row in summary if str(row["verdict"]) != "healthy"]
+    print(f"Routes reported:    {len(summary)}")
+    print(f"Routes in breach:   {len(breached)}")
+    print()
 
     header = (
         f"{'Route':<24} {'N':>5} {'P50':>8} {'P95':>8} {'P99':>8} "
@@ -185,6 +200,8 @@ def main() -> None:
         latency_budget=args.latency_budget,
         error_budget=args.error_budget,
         min_samples=args.min_samples,
+        route_prefix=args.route_prefix,
+        breaches_only=args.breaches_only,
     )
     print_summary(summary, args)
 

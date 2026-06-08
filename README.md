@@ -8,6 +8,7 @@ Practical Python CLI that audits raw request traces against latency and error bu
 - Aggregates per-route sample count, average, P50, P95, and P99 latency
 - Measures 5xx error rate by route
 - Flags routes that breach a configurable P95 latency budget or error budget
+- Prints a release posture (`clear`, `review breaches`, or `hold release`) from the current breach severity
 - Can focus on one route family or emit only budget breaches
 - Optionally exports the route summary as CSV for handoff into a spreadsheet or incident review doc
 

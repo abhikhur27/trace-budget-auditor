@@ -148,8 +148,17 @@ def print_summary(summary: list[dict[str, float | int | str]], args: argparse.Na
         return
 
     breached = [row for row in summary if str(row["verdict"]) != "healthy"]
+    hold_routes = [
+        row
+        for row in summary
+        if float(row["latency_breach_ms"]) >= 100 or float(row["error_breach_pct"]) >= 2.0
+    ]
+    posture = "hold release" if hold_routes else "review breaches"
+    if not breached:
+        posture = "clear"
     print(f"Routes reported:    {len(summary)}")
     print(f"Routes in breach:   {len(breached)}")
+    print(f"Release posture:    {posture}")
     print()
 
     header = (
@@ -168,6 +177,14 @@ def print_summary(summary: list[dict[str, float | int | str]], args: argparse.Na
             f"{float(row['error_rate_pct']):>8.2f} "
             f"{str(row['verdict']):>18}"
         )
+
+    if breached:
+        print("\nHighest-priority routes:")
+        for row in breached[:3]:
+            print(
+                f"  {row['route']}: p95 +{float(row['latency_breach_ms']):.1f} ms, "
+                f"error +{float(row['error_breach_pct']):.2f}%"
+            )
 
 
 def write_csv(summary: list[dict[str, float | int | str]], path: Path) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--route-prefix", type=str, help="Only audit routes starting with this prefix")
     parser.add_argument("--breaches-only", action="store_true", help="Only print/export routes breaching any budget")
     parser.add_argument("--output", type=Path, help="Optional CSV path for the route summary")
+    parser.add_argument("--json-out", type=Path, help="Optional JSON path for the audit summary")
     return parser.parse_args()
 
 
@@ -209,6 +211,22 @@ def write_csv(summary: list[dict[str, float | int | str]], path: Path) -> None:
         writer.writerows(summary)
 
 
+def write_json(summary: list[dict[str, float | int | str]], path: Path, args: argparse.Namespace) -> None:
+    breached = [row for row in summary if str(row["verdict"]) != "healthy"]
+    payload = {
+        "latency_budget_ms": args.latency_budget,
+        "error_budget_pct": args.error_budget,
+        "min_samples": args.min_samples,
+        "route_prefix": args.route_prefix,
+        "breaches_only": args.breaches_only,
+        "routes_reported": len(summary),
+        "routes_in_breach": len(breached),
+        "rows": summary,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 def main() -> None:
     args = parse_args()
     rows = read_rows(args.input)
@@ -226,6 +244,10 @@ def main() -> None:
         write_csv(summary, args.output)
         print()
         print(f"Wrote route summary: {args.output}")
+
+    if args.json_out:
+        write_json(summary, args.json_out, args)
+        print(f"Wrote JSON summary: {args.json_out}")
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ Practical Python CLI that audits raw request traces against latency and error bu
 - Aggregates per-route sample count, average, P50, P95, and P99 latency
 - Measures 5xx error rate by route
 - Flags routes that breach a configurable P95 latency budget or error budget
+- Optionally compares the current trace window against a baseline CSV to show route regressions
 - Optionally rolls routes up into family hot spots like `/api/checkout` or `/api/users`
 - Prints a release posture (`clear`, `review breaches`, or `hold release`) from the current breach severity
 - Can focus on one route family or emit only budget breaches
@@ -39,6 +40,12 @@ Route-family rollup for a faster release-review pass:
 python auditor.py --input sample_traces.csv --family-depth 2 --json-out reports/summary.json
 ```
 
+Compare a candidate release against a known-good baseline:
+
+```bash
+python auditor.py --input sample_traces.csv --baseline baseline_traces.csv --output reports/delta.csv
+```
+
 Breach-only audit for one route family:
 
 ```bash
@@ -65,4 +72,4 @@ route,duration_ms,status
 
 - Project type: Python CLI utility
 - Stack: Python, CSV, latency/error-budget analysis
-- Verification path: `python auditor.py --input sample_traces.csv --family-depth 2 --output reports/summary.csv`
+- Verification path: `python auditor.py --input sample_traces.csv --baseline sample_traces.csv --family-depth 2 --output reports/summary.csv`

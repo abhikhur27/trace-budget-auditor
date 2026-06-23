@@ -20,6 +20,11 @@ def parse_args() -> argparse.Namespace:
         description="Audit request traces against latency and error budgets."
     )
     parser.add_argument("--input", type=Path, required=True, help="CSV with route,duration_ms,status columns")
+    parser.add_argument(
+        "--baseline",
+        type=Path,
+        help="Optional CSV from a known-good window to compare against current routes.",
+    )
     parser.add_argument("--latency-budget", type=float, default=350.0, help="P95 latency budget in milliseconds")
     parser.add_argument("--error-budget", type=float, default=2.0, help="Error-rate budget in percent")
     parser.add_argument("--min-samples", type=int, default=5, help="Minimum route sample count before auditing it")
@@ -149,6 +154,41 @@ def summarize_routes(
     return summary
 
 
+def attach_baseline_deltas(
+    summary: list[dict[str, float | int | str]],
+    baseline_rows: list[TraceRow],
+    min_samples: int,
+    route_prefix: str | None = None,
+) -> None:
+    baseline_summary = summarize_routes(
+        baseline_rows,
+        latency_budget=float("inf"),
+        error_budget=float("inf"),
+        min_samples=min_samples,
+        route_prefix=route_prefix,
+        breaches_only=False,
+    )
+    baseline_lookup = {
+        str(row["route"]): row
+        for row in baseline_summary
+    }
+
+    for row in summary:
+        baseline = baseline_lookup.get(str(row["route"]))
+        if baseline is None:
+            row["baseline_samples"] = 0
+            row["p95_delta_ms"] = "new"
+            row["error_rate_delta_pct"] = "new"
+            continue
+
+        row["baseline_samples"] = int(baseline["samples"])
+        row["p95_delta_ms"] = round(float(row["p95_ms"]) - float(baseline["p95_ms"]), 1)
+        row["error_rate_delta_pct"] = round(
+            float(row["error_rate_pct"]) - float(baseline["error_rate_pct"]),
+            2,
+        )
+
+
 def summarize_families(
     summary: list[dict[str, float | int | str]],
     family_depth: int,
@@ -231,6 +271,8 @@ def print_summary(
     if args.family_depth > 0:
         print(f"Family depth:       {args.family_depth}")
     print(f"Breaches only:      {'yes' if args.breaches_only else 'no'}")
+    if args.baseline:
+        print(f"Baseline traces:    {args.baseline}")
     print()
 
     if not summary:
@@ -271,9 +313,19 @@ def print_summary(
     if breached:
         print("\nHighest-priority routes:")
         for row in breached[:3]:
+            delta_parts = []
+            if "p95_delta_ms" in row:
+                p95_delta = row["p95_delta_ms"]
+                error_delta = row["error_rate_delta_pct"]
+                if p95_delta == "new":
+                    delta_parts.append("new route vs baseline")
+                else:
+                    delta_parts.append(f"p95 delta {float(p95_delta):+.1f} ms")
+                    delta_parts.append(f"error delta {float(error_delta):+.2f}%")
             print(
                 f"  {row['route']}: p95 +{float(row['latency_breach_ms']):.1f} ms, "
                 f"error +{float(row['error_breach_pct']):.2f}%"
+                + (f" | {'; '.join(delta_parts)}" if delta_parts else "")
             )
 
     if family_summary:
@@ -300,21 +352,24 @@ def print_summary(
 
 def write_csv(summary: list[dict[str, float | int | str]], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "route",
+        "samples",
+        "avg_ms",
+        "p50_ms",
+        "p95_ms",
+        "p99_ms",
+        "error_rate_pct",
+        "latency_breach_ms",
+        "error_breach_pct",
+        "verdict",
+    ]
+    if summary and "baseline_samples" in summary[0]:
+        fieldnames.extend(["baseline_samples", "p95_delta_ms", "error_rate_delta_pct"])
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=[
-                "route",
-                "samples",
-                "avg_ms",
-                "p50_ms",
-                "p95_ms",
-                "p99_ms",
-                "error_rate_pct",
-                "latency_breach_ms",
-                "error_breach_pct",
-                "verdict",
-            ],
+            fieldnames=fieldnames,
         )
         writer.writeheader()
         writer.writerows(summary)
@@ -350,6 +405,14 @@ def main() -> None:
         route_prefix=args.route_prefix,
         breaches_only=args.breaches_only,
     )
+    if args.baseline:
+        baseline_rows = read_rows(args.baseline)
+        attach_baseline_deltas(
+            summary,
+            baseline_rows=baseline_rows,
+            min_samples=args.min_samples,
+            route_prefix=args.route_prefix,
+        )
     family_summary = summarize_families(summary, args.family_depth)
     print_summary(summary, family_summary, args)
 
